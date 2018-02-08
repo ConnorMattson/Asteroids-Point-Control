@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	
+  <style>
+    
+    body {
+      background-color: black;
+      color: white;
+      text-align: center;
+    }
+  
+    canvas {
+      width: 90vh;
+      height: 90vh;
+    }
+    
+    #canvas-container {
+      height: 90vh;
+      width: 90vh;
+      margin: auto;
+    }
+  
+  </style>
+
+  <script src="paper-full.js"></script>
+  <script type="text/paperscript" canvas="paperscriptCanvas">
+  
+    /*
+    @Author: Connor Mattson
+
+    @Date: May 1st 2015
+
+    @version: 2
+
+    @Description:
+      Two players fly around avoiding asteroids and capturing points.
+      After one minute, the player with the most points held wins.
+
+    @Specifications:
+      Two (2) Avatars with different keys to move each one around the screen but NOT off the screen
+      A group of items that are collected - avoid having items that overlap
+      A Scoreboard that displays the number of items collected by each avatar
+      A “game over” message when the game ends (this is an excellence feature i.e. handling boundary cases )
+      Click the game board to restart the game
+      The program should use an array or Group (PaperJS indexed data structure) to store the items
+      Randomise the positions of the items ( For Excellence )
+    */
+    /*
+    *******************
+    Constants:
+    *******************
+    */
+    var canvas = document.getElementById('paperscriptCanvas');
+    var CANVAS_WIDTH = canvas.width;
+    var CANVAS_HEIGHT = canvas.height;
+    var CANVAS_WIDTH10 = CANVAS_WIDTH / 10
+    var CANVAS_HEIGHT10 = CANVAS_HEIGHT / 10
+
+    window.addEventListener('resize', windowRefresh, false);
+
+    function windowRefresh() {
+        location.reload(false)
+    }
+
+    //All the different shapes for an asteroid
+    var asteroidShapes = [new Path(
+            [-23, -40.5], [0, -30.5], [24, -40.5], [45, -21.5], [25, -12.5], [46, 9.5], [22, 38.5], [-10, 30.5], [-22, 40.5], [-46, 18.5], [-33, 0.5], [-44, -21.5], [-23, -40.5]),
+        new Path(
+            [-45, -9.5], [-12, -40.5], [24, -40.5], [46, -11.5], [45, 10.5], [24, 40.5], [0, 40.5], [0, 10.5], [-23, 38.5], [-46, 9.5], [-25, 0.5], [-45, -9.5]),
+        new Path([-21.5, -39.5], [11.5, -39.5], [45.5, -20.5], [45.5, -8.5], [9.5, 0.5], [44.5, 21.5], [22.5, 39.5], [9.5, 31.5], [-20.5, 39.5], [-45.5, 10.5], [-45.5, -20.5], [-11.5, -21.5], [-21.5, -39.5]),
+        new Path(
+            [-22.5, -40.5], [-0.5, -19.5], [23.5, -39.5], [44.5, -21.5], [33.5, 0.5], [46.5, 19.5], [13.5, 40.5], [-22.5, 39.5], [-46.5, 18.5], [-46.5, -18.5], [-22.5, -40.5])
+    ];
+
+    var mineralToClone = new Path([5, 5], [5, 15], [15, 15, ], [15, 5], [5, 5], [10, 0], [20, 0], [15, 5], [20, 0], [20, 10], [15, 15], [15, 5])
+
+    mineralToClone.strokeColor = 'green';
+    mineralToClone.fillColor = 'white';
+    mineralToClone.strokeWidth = 1;
+    mineralToClone.visible = false;
+
+    var PLAYER_SPEED = (CANVAS_WIDTH / 100)
+    var PLAYER_ROTATION_SPEED = 6
+
+
+
+    /*
+    *******************
+    Inital Setup:
+    *******************
+    */
+
+    //Draws border around canvas
+    var border = Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT));
+    border.closed = true;
+    border.strokeColor = 'black';
+    border.strokeWidth = 3;
+    border.fillColor = '#ffffff'
+    border.onMouseDown = backgroundClicked
+
+    function createText(xPos, yPos, text, font, onClick) {
+        var textTemp = new PointText()
+        textTemp.content = text
+        textTemp.fontSize = font
+        textTemp.position = [xPos, yPos]
+
+        if (onClick != undefined) {
+            textTemp.onMouseDown = onClick
+        }
+        return textTemp
+    }
+
+    function createRect(xPos, yPos, xSize, ySize, onClick) {
+        var rectTemp = new Path.Rectangle(0, 0, xSize, ySize)
+        rectTemp.strokeColor = 'black'
+        rectTemp.position = [xPos, yPos]
+        rectTemp.fillColor = '#ffffff'
+
+        if (onClick != undefined) {
+            rectTemp.onMouseDown = onClick
+        }
+
+        return rectTemp
+    }
+
+    function createControlKey(xPos, yPos, defaultKey, onClick) {
+        var objectTemp = {}
+        objectTemp.square = createRect(xPos, yPos, CANVAS_WIDTH10, CANVAS_HEIGHT10, onClick)
+        objectTemp.text = createText(xPos, yPos, defaultKey, CANVAS_WIDTH10 / 2, onClick)
+        objectTemp.key = defaultKey.toLowerCase()
+
+        return objectTemp
+    }
+
+
+    var gameObjects = {}
+
+    gameObjects.mainMenu = {
+        gameTitle: createText(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT10 * 0.7, 'Asteroids', CANVAS_WIDTH10),
+        instructions: createText(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT10 * 1.375, "Capture the most cubes to win!", CANVAS_WIDTH10 / 2.5),
+
+
+        difficultyText: createText(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.2, "Select Difficulty", CANVAS_WIDTH10 / 2),
+
+        difficultyBox1: createRect(CANVAS_WIDTH * 0.23, CANVAS_HEIGHT / 3.37, CANVAS_WIDTH10 * 2.5, CANVAS_HEIGHT10, difficultyEasy),
+        difficultyBox1Text: createText(CANVAS_WIDTH * 0.23, CANVAS_HEIGHT / 3.37, "Easy", CANVAS_WIDTH10 / 2, difficultyEasy),
+
+        difficultyBox2: createRect(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT / 3.37, CANVAS_WIDTH10 * 2.5, CANVAS_HEIGHT10, difficultyNormal),
+        difficultyBox2Text: createText(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 3.37, "Normal", CANVAS_WIDTH10 / 2, difficultyNormal),
+
+        difficultyBox3: createRect(CANVAS_WIDTH * 0.77, CANVAS_HEIGHT / 3.37, CANVAS_WIDTH10 * 2.5, CANVAS_HEIGHT10, difficultyHard),
+        difficultyBox3Text: createText(CANVAS_WIDTH * 0.77, CANVAS_HEIGHT / 3.37, "Hard", CANVAS_WIDTH10 / 2, difficultyHard),
+
+        controlsText: createText(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT / 2.35, "       Controls\n(Click to Change)", CANVAS_WIDTH10 / 2),
+
+
+        player1Up: createControlKey(CANVAS_WIDTH * 0.265, CANVAS_HEIGHT * 0.62, "W", changePlayer1Up),
+        player1UpExplainText: createText(CANVAS_WIDTH * 0.265, CANVAS_HEIGHT * 0.555, "Thrust", CANVAS_WIDTH10 * 0.25, changePlayer1Up),
+
+        player1Left: createControlKey(CANVAS_WIDTH * 0.145, CANVAS_HEIGHT * 0.74, "A", changePlayer1Left),
+        player1LeftExplainText: createText(CANVAS_WIDTH * 0.145, CANVAS_HEIGHT * 0.81, "Turn Left", CANVAS_WIDTH10 * 0.25, changePlayer1Left),
+
+        player1Down: createControlKey(CANVAS_WIDTH * 0.265, CANVAS_HEIGHT * 0.74, "S", changePlayer1Down),
+        player1DownExplainText: createText(CANVAS_WIDTH * 0.265, CANVAS_HEIGHT * 0.81, "Reverse", CANVAS_WIDTH10 * 0.25, changePlayer1Down),
+
+        player1Right: createControlKey(CANVAS_WIDTH * 0.385, CANVAS_HEIGHT * 0.74, "D", changePlayer1Right),
+        player1RightExplainText: createText(CANVAS_WIDTH * 0.385, CANVAS_HEIGHT * 0.81, "Turn Right", CANVAS_WIDTH10 * 0.25, changePlayer1Right),
+
+
+        player2Up: createControlKey(CANVAS_WIDTH * 0.765, CANVAS_HEIGHT * 0.62, "I", changePlayer2Up),
+        player2UpExplainText: createText(CANVAS_WIDTH * 0.765, CANVAS_HEIGHT * 0.555, "Thrust", CANVAS_WIDTH10 * 0.25, changePlayer2Up),
+
+        player2Left: createControlKey(CANVAS_WIDTH * 0.645, CANVAS_HEIGHT * 0.74, "J", changePlayer2Left),
+        player2LeftExplainText: createText(CANVAS_WIDTH * 0.645, CANVAS_HEIGHT * 0.81, "Turn Left", CANVAS_WIDTH10 * 0.25, changePlayer2Left),
+
+        player2Down: createControlKey(CANVAS_WIDTH * 0.765, CANVAS_HEIGHT * 0.74, "K", changePlayer2Down),
+        player2DownExplainText: createText(CANVAS_WIDTH * 0.765, CANVAS_HEIGHT * 0.81, "Reverse", CANVAS_WIDTH10 * 0.25, changePlayer2Down),
+
+        player2Right: createControlKey(CANVAS_WIDTH * 0.885, CANVAS_HEIGHT * 0.74, "L", changePlayer2Right),
+        player2RightExplainText: createText(CANVAS_WIDTH * 0.885, CANVAS_HEIGHT * 0.81, "Turn Right", CANVAS_WIDTH10 * 0.25, changePlayer2Right),
+
+
+        playButton: createRect(CANVAS_WIDTH / 2, CANVAS_HEIGHT - CANVAS_HEIGHT10 / 1.25, CANVAS_WIDTH10 * 2.5, CANVAS_HEIGHT10, playGame),
+        playButtonText: createText(CANVAS_WIDTH / 2, CANVAS_HEIGHT - CANVAS_HEIGHT10 / 1.25, "Play", CANVAS_WIDTH10 / 2, playGame),
+    }
+
+    gameObjects.scoreScreen = {
+        winnerText: createText(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.57, "Draw!", CANVAS_WIDTH10),
+        gameOver: createText(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT / 2 - CANVAS_HEIGHT10 * 1.5, "Game Over", CANVAS_WIDTH10 + CANVAS_WIDTH10 / 2),
+
+        returnToMainMenuBox: createRect(CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.875, CANVAS_WIDTH10 * 5, CANVAS_HEIGHT10, closeScoreScreen),
+        returnToMainMenu: createText(CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.875, "Return to menu", CANVAS_WIDTH10 / 2, closeScoreScreen)
+
+    }
+
+
+    var difficultySelected;
+    var difficultyMultiplier = 1
+    var atMainMenu = false;
+    var atScoreScreen = false;
+
+    //All the variables used to change the player's controls
+    var keyPressed = false;
+    var waitingForInput = false;
+
+    //An invisible layer to stop multiple keys being configured at once
+    var fakeLayer = 0;
+
+    //Sets up the timer which counts down to the game's start and during the game.
+    var gameTime = 60
+    var gameTimeText = new PointText(CANVAS_WIDTH / 2 - 20, 50)
+    gameTimeText.fontSize = 40
+    var gameTimeTimer;
+
+    var startTime = 4
+    var startTimeText = new PointText(CANVAS_WIDTH / 2 - (40), CANVAS_HEIGHT / 2 + (50))
+        //startTimeText.content = startTime
+    startTimeText.fontSize = 160
+    var gameRunning = false;
+    var startTimeTimer;
+
+    //Create player1 - player rotation is the degrees from straight up.
+    var player1 = new Path();
+    var player1Preview = new Path();
+    var player1Rotation;
+    var player1RotationDifference = 0;
+    var player1Dead = 0;
+    var player1DeadBool = false;
+    var player1OpacityCounter = 100;
+    var player1Invulnerability = false;
+    //The interval ID used for checking invulnerability
+    var player1RefreshIntervalId;
+    var player1Score = 0;
+    var player1ScoreText = new PointText(5, 25)
+    player1ScoreText.fontSize = 20
+
+
+    //Create player2 - player rotation is the degrees from straight up.
+    var player2 = new Path();
+    var player2Preview = new Path();
+    var player2Rotation;
+    var player2RotationDifference = 0;
+    var player2Dead = 0;
+    var player2DeadBool = false;
+    var player2OpacityCounter = 100;
+    var player2Invulnerability = false;
+    //The interval ID used for checking invulnerability
+    var player2RefreshIntervalId;
+    var player2Score = 0;
+    var player2ScoreText = new PointText(CANVAS_WIDTH - 105, 25)
+    player2ScoreText.fontSize = 20
+    var player2ScoreTextBool = 0
+
+    var asteroids = []
+
+    var minerals = []
+
+    var winner = 0;
+
+
+
+    /*
+    *******************
+    On Frame Events:
+    *******************
+    */
+
+    //Refreshes every frame, this allows multiple things to happen at once.
+    function onFrame() {
+        if (gameRunning == true) {
+
+            //Constrains angles to between 0 and 360
+            if (player2Rotation >= 360) {
+                player2Rotation -= 360
+            }
+            if (player2Rotation < 0) {
+                player2Rotation += 360
+            }
+            if (player1Rotation >= 360) {
+                player1Rotation -= 360
+            }
+            if (player1Rotation < 0) {
+                player1Rotation += 360
+            }
+
+            //Checks whether player 1 is dead and respawns them if they are; if player 1 is alive, it handles their movement.
+            if (player1DeadBool == true) {
+                //Checks whether old player is still dying.
+                if (player1OpacityCounter > 0) {
+                    player1OpacityCounter -= 2
+                    player1Dead.opacity = (player1OpacityCounter / 100)
+                }
+
+                //Spawns new player
+                else if (player1DeadBool == true && gameRunning == true) {
+                    player1DeadBool = false
+                    player1Dead.remove()
+                    spawnPlayer1()
+                }
+            } else {
+
+                //Movement of player 1
+                if (Key.isDown(gameObjects.mainMenu.player1Right.key)) {
+                    player1Preview.rotation += PLAYER_ROTATION_SPEED
+                    player1Rotation += PLAYER_ROTATION_SPEED
+                    player1RotationDifference += PLAYER_ROTATION_SPEED
+                }
+                if (Key.isDown(gameObjects.mainMenu.player1Left.key)) {
+                    player1Preview.rotation -= PLAYER_ROTATION_SPEED
+                    player1Rotation -= PLAYER_ROTATION_SPEED
+                    player1RotationDifference -= PLAYER_ROTATION_SPEED
+                }
+                if (Key.isDown(gameObjects.mainMenu.player1Up.key)) {
+                    player1Preview.position.x += PLAYER_SPEED * Math.sin(convertAngle(player1Rotation))
+                    player1Preview.position.y -= PLAYER_SPEED * Math.cos(convertAngle(player1Rotation))
+                }
+                if (Key.isDown(gameObjects.mainMenu.player1Down.key)) {
+                    player1Preview.position.x -= (PLAYER_SPEED / 2) * Math.sin(convertAngle(player1Rotation))
+                    player1Preview.position.y += (PLAYER_SPEED / 2) * Math.cos(convertAngle(player1Rotation))
+                }
+
+                //Checks whether the proposed movement moves player 1 outside of the boundary
+                if (playerOutsideBoundary(player1Preview) == false) {
+                    player1.position = player1Preview.position
+                    player1.rotation += player1RotationDifference
+                    player1RotationDifference = 0
+
+                } else {
+                    player1Preview.position = player1.position
+                    player1Preview.rotation -= player1RotationDifference
+                    player1Rotation -= player1RotationDifference
+                    player1RotationDifference = 0
+                }
+
+            }
+
+            //Checks whether player 2 is dead and respawns them if they are; if player 2 is alive, it handles their movement.
+            if (player2DeadBool == true) {
+                //Checks whether old player is still dying.
+                if (player2OpacityCounter > 0) {
+                    player2OpacityCounter -= 2
+                    player2Dead.opacity = (player2OpacityCounter / 100)
+                }
+
+                //Spawns new player
+                else if (player2DeadBool == true && gameRunning == true) {
+                    player2DeadBool = false
+                    player2Dead.remove()
+                    spawnPlayer2()
+                }
+            } else {
+
+                //Movement of player 2
+                if (Key.isDown(gameObjects.mainMenu.player2Right.key)) {
+                    player2Preview.rotation += PLAYER_ROTATION_SPEED
+                    player2Rotation += PLAYER_ROTATION_SPEED
+                    player2RotationDifference += PLAYER_ROTATION_SPEED
+                }
+                if (Key.isDown(gameObjects.mainMenu.player2Left.key)) {
+                    player2Preview.rotation -= PLAYER_ROTATION_SPEED
+                    player2Rotation -= PLAYER_ROTATION_SPEED
+                    player2RotationDifference -= PLAYER_ROTATION_SPEED
+                }
+                if (Key.isDown(gameObjects.mainMenu.player2Up.key)) {
+                    player2Preview.position.x += PLAYER_SPEED * Math.sin(convertAngle(player2Rotation))
+                    player2Preview.position.y -= PLAYER_SPEED * Math.cos(convertAngle(player2Rotation))
+                }
+                if (Key.isDown(gameObjects.mainMenu.player2Down.key)) {
+                    player2Preview.position.x -= (PLAYER_SPEED / 2) * Math.sin(convertAngle(player2Rotation))
+                    player2Preview.position.y += (PLAYER_SPEED / 2) * Math.cos(convertAngle(player2Rotation))
+                }
+
+                //Checks whether the proposed movement moves player 2 outside of the boundary
+                if (playerOutsideBoundary(player2Preview) == false) {
+                    player2.position = player2Preview.position
+                    player2.rotation += player2RotationDifference
+                    player2RotationDifference = 0
+
+                } else {
+                    player2Preview.position = player2.position
+                    player2Preview.rotation -= player2RotationDifference
+                    player2Rotation -= player2RotationDifference
+                    player2RotationDifference = 0
+                }
+
+            }
+
+            //Checks whether asteroids have reached the border
+            for (var i = 0; i < asteroids.length; i++) {
+                if (asteroidOutsideBoundary(asteroids[i].asteroidPath) != false) {
+
+                    if (asteroidOutsideBoundary(asteroids[i].asteroidPath) == 'left') {
+
+                        if (asteroids[i].rotation > 270 && asteroids[i].rotation < 361) {
+                            asteroids[i].rotation = 90 - (asteroids[i].rotation - 270)
+
+
+                        } else if (asteroids[i].rotation == 270) {
+                            asteroids[i].rotation = 90
+
+                        } else if (asteroids[i].rotation < 270 && asteroids[i].rotation > 180) {
+                            asteroids[i].rotation = 90 + (270 - asteroids[i].rotation)
+                        }
+
+
+                    } else if (asteroidOutsideBoundary(asteroids[i].asteroidPath) == 'right') {
+                        if (asteroids[i].rotation > 0 && asteroids[i].rotation < 90) {
+                            asteroids[i].rotation = 270 + (90 - asteroids[i].rotation)
+
+
+                        } else if (asteroids[i].rotation == 90) {
+                            asteroids[i].rotation = 270
+
+                        } else if (asteroids[i].rotation < 180 && asteroids[i].rotation > 90) {
+                            asteroids[i].rotation = 270 - (asteroids[i].rotation - 90)
+                        }
+
+
+                    } else if (asteroidOutsideBoundary(asteroids[i].asteroidPath) == 'bottom') {
+                        if (asteroids[i].rotation > 90 && asteroids[i].rotation < 180) {
+                            asteroids[i].rotation = 0 + (180 - asteroids[i].rotation)
+
+
+                        } else if (asteroids[i].rotation == 180) {
+                            asteroids[i].rotation = 0
+
+                        } else if (asteroids[i].rotation < 270 && asteroids[i].rotation > 180) {
+                            asteroids[i].rotation = 360 - (asteroids[i].rotation - 180)
+                        }
+
+
+                    } else if (asteroidOutsideBoundary(asteroids[i].asteroidPath) == 'top') {
+                        if (asteroids[i].rotation > 270 && asteroids[i].rotation < 360) {
+                            asteroids[i].rotation = 180 + (360 - asteroids[i].rotation)
+
+
+                        } else if (asteroids[i].rotation == 0 || asteroids[i].rotation == 360) {
+                            asteroids[i].rotation = 180
+
+                        } else if (asteroids[i].rotation < 90 && asteroids[i].rotation > 0) {
+                            asteroids[i].rotation = 180 - (asteroids[i].rotation)
+                        }
+
+                    }
+
+                }
+            }
+
+            //Movement of asteroids
+            for (var i = 0; i < asteroids.length; i++) {
+                asteroids[i].asteroidPath.position.x += (asteroids[i].speed) * Math.sin(convertAngle(asteroids[i].rotation))
+                asteroids[i].asteroidPath.position.y -= (asteroids[i].speed) * Math.cos(convertAngle(asteroids[i].rotation))
+            }
+
+            //Checks if a player and an asteroid have collided
+            var player1Segments = player1.segments
+            var player2Segments = player2.segments
+            for (var i = 0; i < asteroids.length; i++) {
+
+                if (player1DeadBool == false && player1Invulnerability == 0 && player1 != 0 && player1 != '0') {
+                    for (var j in player1Segments) {
+                        if (asteroids[i].asteroidPath.hitTest(player1Segments[j].point) && player1 != 0 && player1 != '0') {
+                            player1Dead = new Path();
+                            player1Dead = player1.clone();
+                            player1DeadBool = true;
+                            player1.fillColor = 'white';
+                            player1.visible = false;
+                            player1 = 0
+                            player1Preview = 0
+                        }
+                    }
+                }
+
+                if (player2DeadBool == false && player2Invulnerability == 0 && player2 != 0 && player2 != '0') {
+                    for (var j in player2Segments) {
+                        if (asteroids[i].asteroidPath.hitTest(player2Segments[j].point) && player2 != 0 && player2 != '0') {
+                            player2Dead = new Path();
+                            player2Dead = player2.clone();
+                            player2DeadBool = true;
+                            player2.fillColor = 'white';
+                            player2.visible = false;
+                            player2 = 0
+                            player2Preview = 0
+                        }
+                    }
+                }
+
+            }
+
+            //Checks if a player and a mineral have collided
+            for (var i = 0; i < minerals.length; i++) {
+
+                for (var j in player1Segments) {
+
+                    if (minerals[i].hitTest(player1Segments[j].point)) {
+                        if (minerals[i].strokeColor.red != 1) {
+
+                            if (minerals[i].strokeColor.blue != 0) {
+                                player2Score--
+                            }
+
+                            minerals[i].strokeColor = 'red';
+                            player1Score++
+                        }
+
+                    }
+                }
+
+                for (var j in player2Segments) {
+
+                    if (minerals[i].hitTest(player2Segments[j].point)) {
+                        if (minerals[i].strokeColor.blue != 1) {
+
+                            if (minerals[i].strokeColor.red != 0) {
+                                player1Score--
+                            }
+
+                            minerals[i].strokeColor = 'blue';
+                            player2Score++
+                        }
+
+                    }
+
+                }
+
+            }
+
+            //Updates the player's score
+            player1ScoreText.content = "Player 1: " + player1Score
+            player2ScoreText.content = "Player 2: " + player2Score
+            if (player2Score == 10 && player2ScoreTextBool == 0) {
+                player2ScoreText.position.x -= 10
+                player2ScoreTextBool = 1
+            }
+            if (player2Score != 10 && player2ScoreTextBool == 1) {
+                player2ScoreText.position.x += 10
+                player2ScoreTextBool = 0
+
+            }
+
+        }
+    }
+
+
+    /*
+    *******************
+    Functions:
+    *******************
+    */
+
+    //Checks if the players are set to invulnerable and handles the time this runs for.
+    function player1InvulnerabilityCheck() {
+
+        if (player1Invulnerability <= 0) {
+            clearInterval(player1RefreshIntervalId)
+            return
+        } else {
+            player1Invulnerability -= 2;
+
+            if (player1OpacityCounter != 50) {
+                player1OpacityCounter = 50
+            } else {
+                player1OpacityCounter = 100
+            }
+
+            player1.opacity = (player1OpacityCounter / 100)
+
+
+        }
+
+    }
+
+    function player2InvulnerabilityCheck() {
+
+        if (player2Invulnerability <= 0) {
+            clearInterval(player2RefreshIntervalId)
+            return
+        } else {
+            player2Invulnerability -= 2;
+
+            if (player2OpacityCounter != 50) {
+                player2OpacityCounter = 50
+            } else {
+                player2OpacityCounter = 100
+            }
+
+            player2.opacity = (player2OpacityCounter / 100)
+
+
+        }
+
+    }
+
+    //Changes angles from degrees to radians
+    function convertAngle(angle) {
+        return angle * (Math.PI / 180)
+    }
+
+    //Checks for player whether a player is outside the boundary (used on player movement previews to check if movement is valid)
+    function playerOutsideBoundary(player) {
+        var playerSegments = player.segments
+        for (var i in playerSegments) {
+
+            if (playerSegments[i].point.x < 0 || playerSegments[i].point.x > CANVAS_WIDTH || playerSegments[i].point.y < 0 || playerSegments[i].point.y > CANVAS_HEIGHT) {
+
+                return true;
+
+            }
+
+        }
+        return false;
+    }
+
+    //Checks whether an asteroid is outside the boundary (similar to the player boundary check except returns which boundary)
+    function asteroidOutsideBoundary(asteroid) {
+        var asteroidSegments = asteroid.segments
+
+        for (var i in asteroidSegments) {
+
+            if (asteroidSegments[i].point.x < 0) {
+                return 'left';
+            } else if (asteroidSegments[i].point.x > CANVAS_WIDTH - 0) {
+                return 'right';
+            } else if (asteroidSegments[i].point.y < 0) {
+                return 'top';
+            } else if (asteroidSegments[i].point.y > CANVAS_HEIGHT - 0) {
+                return 'bottom';
+            }
+
+        }
+        return false;
+    }
+
+    //Checks whether a player and an asteroid have collided
+    function playerCollidedWithAsteroid(asteroid, player) {
+        var playerSegments = player.segments
+
+        for (var i in playerSegments) {
+            if (asteroids[i].asteroidPath.hitTest(i)) {
+                return true;
+
+            }
+        }
+        return false;
+    }
+
+    //Resets the players position (players must be destroyed first if they already exist)
+    function spawnPlayer1() {
+        player1 = new Path()
+        player1.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10))
+        player1.add(new Point(CANVAS_WIDTH10 * 1.2, CANVAS_HEIGHT10 * 1.2))
+        player1.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10 * 1.4))
+        player1.add(new Point(CANVAS_WIDTH10 * 1.8, CANVAS_HEIGHT10 * 1.2))
+        player1.closed = true;
+        player1.fillColor = 'red';
+        player1.position.x = CANVAS_WIDTH10
+        player1.position.y = CANVAS_HEIGHT / 2
+        player1Rotation = 90
+        player1.visible = true;
+        player1.opacity = 1;
+
+        player1Preview = new Path()
+        player1Preview.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10))
+        player1Preview.add(new Point(CANVAS_WIDTH10 * 1.2, CANVAS_HEIGHT10 * 1.2))
+        player1Preview.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10 * 1.4))
+        player1Preview.add(new Point(CANVAS_WIDTH10 * 1.8, CANVAS_HEIGHT10 * 1.2))
+        player1Preview.closed = true;
+        player1Preview.position.x = CANVAS_WIDTH10
+        player1Preview.position.y = CANVAS_HEIGHT / 2
+        player1RotationDifference = 0
+        player1Preview.sendToBack()
+        player1Preview.visible = false;
+
+        player1OpacityCounter = 100
+        player1Invulnerability = 12;
+
+        player1RefreshIntervalId = setInterval(player1InvulnerabilityCheck, 200)
+        window.player1RefreshIntervalId
+    }
+
+    function spawnPlayer2() {
+        player2 = new Path()
+        player2.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10))
+        player2.add(new Point(CANVAS_WIDTH10 * 1.2, CANVAS_HEIGHT10 * 1.2))
+        player2.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10 * 1.4))
+        player2.add(new Point(CANVAS_WIDTH10 * 1.8, CANVAS_HEIGHT10 * 1.2))
+        player2.closed = true;
+        player2.fillColor = 'blue';
+        player2.position.x = CANVAS_WIDTH - CANVAS_WIDTH10
+        player2.position.y = CANVAS_HEIGHT / 2
+        player2.rotation = 180;
+        player2RotationDifference = 0
+        player2Rotation = 270
+        player2.visible = true;
+        player2.opacity = 1;
+
+        player2Preview = new Path()
+        player2Preview.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10))
+        player2Preview.add(new Point(CANVAS_WIDTH10 * 1.2, CANVAS_HEIGHT10 * 1.2))
+        player2Preview.add(new Point(CANVAS_WIDTH10, CANVAS_HEIGHT10 * 1.4))
+        player2Preview.add(new Point(CANVAS_WIDTH10 * 1.8, CANVAS_HEIGHT10 * 1.2))
+        player2Preview.closed = true;
+        player2Preview.position.x = CANVAS_WIDTH - CANVAS_WIDTH10
+        player2Preview.position.y = CANVAS_HEIGHT / 2
+        player2Preview.rotation = 180;
+        player2Preview.sendToBack()
+        player2Preview.visible = false;
+
+        player2OpacityCounter = 100
+        player2Invulnerability = 12;
+
+        player2RefreshIntervalId = setInterval(player2InvulnerabilityCheck, 200)
+        window.player2RefreshIntervalId
+    }
+
+    //Spawns x number of asteroids in random positions
+    function spawnAsteroids(x) {
+        for (var i = 0; i < x; i++) {
+
+            var randomSize = (Math.floor(Math.random() * 5 + 3) / 10)
+            var randomAngle = Math.floor(Math.random() * 360)
+            var randomPositionX = Math.floor(Math.random() * (CANVAS_WIDTH10 - 2 * (CANVAS_WIDTH10 / 10)) + 2 * (CANVAS_WIDTH10 / 10))
+            var randomPositionY = Math.floor(Math.random() * (CANVAS_HEIGHT10 - 2 * (CANVAS_HEIGHT10 / 10)) + 2 * (CANVAS_HEIGHT10 / 10))
+
+            var asteroidSpeed = (1 / randomSize) * (CANVAS_WIDTH / 1000) * difficultyMultiplier
+
+            //Chooses a different shape for the asteroid
+            var randomShape = Math.floor(Math.random() * 3 + 1)
+            var asteroidTempPath = asteroidShapes[randomShape].clone();
+            asteroidTempPath.strokeColor = 'black';
+            asteroidTempPath.position.x = randomPositionX * 10
+            asteroidTempPath.position.y = randomPositionY * 10
+            asteroidTempPath.scaling = (randomSize * CANVAS_WIDTH) / 500;
+            asteroidTempPath.rotation = randomAngle
+
+            while ((asteroidTempPath.position.x < CANVAS_WIDTH10 * 2 && asteroidTempPath.position.y < CANVAS_HEIGHT / 2 + CANVAS_HEIGHT10 && asteroidTempPath.position.y > CANVAS_HEIGHT / 2 - CANVAS_HEIGHT10) || (asteroidTempPath.position.x > CANVAS_WIDTH - CANVAS_WIDTH10 * 2 && asteroidTempPath.position.y < CANVAS_HEIGHT / 2 + CANVAS_HEIGHT10 && asteroidTempPath.position.y > CANVAS_HEIGHT / 2 - CANVAS_HEIGHT10)) {
+
+                randomPositionX = Math.floor(Math.random() * (CANVAS_WIDTH10 - 2 * (CANVAS_WIDTH10 / 10)) + 2 * (CANVAS_WIDTH10 / 10))
+                randomPositionY = Math.floor(Math.random() * (CANVAS_HEIGHT10 - 2 * (CANVAS_HEIGHT10 / 10)) + 2 * (CANVAS_HEIGHT10 / 10))
+                asteroidTempPath.position.x = randomPositionX * 10
+                asteroidTempPath.position.y = randomPositionY * 10
+
+            }
+
+            //Writes the asteroids to a global variable (as objects with path, rotation and speed keys)
+            asteroids[i] = new Object()
+            asteroids[i].asteroidPath = asteroidTempPath
+            asteroids[i].asteroidPath.fillColor = 'white'
+            asteroids[i].rotation = randomAngle
+            asteroids[i].speed = asteroidSpeed
+
+        }
+    }
+
+    //Spawns x number of minerals in random positions
+    function spawnMinerals(x) {
+        for (var i = 0; i < x; i++) {
+
+            var randomPositionX = Math.floor(Math.random() * (CANVAS_WIDTH10 - 2 * (CANVAS_WIDTH10 / 10)) + 2 * (CANVAS_WIDTH10 / 10))
+            var randomPositionY = Math.floor(Math.random() * (CANVAS_HEIGHT10 - 2 * (CANVAS_HEIGHT10 / 10)) + 2 * (CANVAS_HEIGHT10 / 10))
+
+            minerals[i] = mineralToClone.clone()
+            minerals[i].visible = true;
+            minerals[i].position.x = randomPositionX * 10
+            minerals[i].position.y = randomPositionY * 10
+            minerals[i].scaling = CANVAS_WIDTH / 500;
+
+        }
+    }
+
+    //Runs the countdown timer to start the game
+    function showStartTime() {
+        startTime--
+
+        if (startTime > 0) {
+            startTimeText.content = startTime
+        } else {
+            startTimeText.content = ''
+            clearInterval(startTimeTimer)
+            gameRunning = true;
+            gameTimeTimer = setInterval(showGameTime, 1000)
+            window.GameTimeTimer
+            startGame()
+        }
+
+    }
+
+    //Runs the countdown during the game
+    function showGameTime() {
+        gameTime--
+
+        if (gameTime > 0) {
+            gameTimeText.content = gameTime
+        } else {
+            gameTimeText.content = gameTime
+            gameRunning = false;
+        }
+        if (gameRunning == false) {
+            clearGame()
+        }
+    }
+
+    //Completes the entire game setup
+    function startGame() {
+        PLAYER_SPEED = (CANVAS_WIDTH / 100)
+        if (difficultySelected == 'easy') {
+            difficultyMultiplier = 0.5
+            PLAYER_SPEED -= 2
+        }
+
+
+
+        if (difficultySelected == 'hard') {
+            difficultyMultiplier = 1.5
+        }
+
+        spawnMinerals(10)
+        spawnAsteroids(10)
+        spawnPlayer1()
+        spawnPlayer2()
+        player1ScoreText.content = "Player 1: " + player1Score
+        player2ScoreText.content = "Player 2: " + player2Score
+        gameTimeText.content = gameTime
+        border.sendToBack()
+    }
+
+    //Deletes all the game sprites
+    function clearGame() {
+        for (var i = 0; i < asteroids.length; i++) {
+            asteroids[i].asteroidPath.remove()
+        }
+
+        for (var i = 0; i < minerals.length; i++) {
+            minerals[i].remove()
+        }
+
+        //Deletes player paths
+        if (player1 != 0) {
+            player1.remove()
+        }
+        if (player1Dead != 0) {
+            player1Dead.remove()
+        }
+        if (player1Preview != 0) {
+            player1Preview.remove()
+        }
+        player1DeadBool = false;
+        player1OpacityCounter = 100;
+        player1Invulnerability = false;
+
+        if (player2 != 0) {
+            player2.remove()
+        }
+        if (player2Dead != 0) {
+            player2Dead.remove()
+        }
+        if (player2Preview != 0) {
+            player2Preview.remove()
+        }
+        player2DeadBool = false;
+        player2OpacityCounter = 100;
+        player2Invulnerability = false;
+
+        //Removes text from screen
+        player1ScoreText.content = ' ';
+        player2ScoreText.content = ' ';
+        gameRunning = false;
+        clearInterval(gameTimeTimer);
+        gameTimeText.content = ' ';
+
+        //Finds the winner
+        if (player1Score > player2Score) {
+            winner = 1;
+        } else if (player1Score < player2Score) {
+            winner = 2;
+        }
+
+        //Takes the player to the score screen
+        launchScoreScreen()
+    }
+
+    function launchScoreScreen() {
+        atScoreScreen = true;
+
+        if (winner != 0) {
+            gameObjects.scoreScreen.winnerText.content = 'Player ' + winner + ' wins!'
+        } else if (winner == 0) {
+            gameObjects.scoreScreen.winnerText.content = 'Draw!'
+        }
+
+        gameObjects.scoreScreen.winnerText.position = [CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.57]
+
+        player1Score = 0
+        player2Score = 0
+
+        for (i in gameObjects.scoreScreen) {
+            gameObjects.scoreScreen[i].visible = true
+        }
+
+    }
+
+    function closeScoreScreen() {
+        for (i in gameObjects.scoreScreen) {
+            gameObjects.scoreScreen[i].visible = false
+        }
+
+        atScoreScreen = false
+        launchMainMenu()
+    }
+
+    //Changes the selected difficulty when a different box is clicked
+    function difficultyEasy() {
+        if (difficultySelected == 'normal') {
+            gameObjects.mainMenu.difficultyBox2Text.fontWeight = 'normal'
+            gameObjects.mainMenu.difficultyBox2Text.position.x += 2
+            gameObjects.mainMenu.difficultyBox2.fillColor = '#ffffff';
+        }
+        if (difficultySelected == 'hard') {
+            gameObjects.mainMenu.difficultyBox3Text.fontWeight = 'normal'
+            gameObjects.mainMenu.difficultyBox3Text.position.x += 2
+            gameObjects.mainMenu.difficultyBox3.fillColor = '#ffffff';
+        }
+
+        if (difficultySelected != 'easy') {
+            gameObjects.mainMenu.difficultyBox1Text.fontWeight = 'bold'
+            gameObjects.mainMenu.difficultyBox1Text.position.x -= 2
+            gameObjects.mainMenu.difficultyBox1.fillColor = '#cccccc'
+            difficultySelected = 'easy'
+        }
+
+    }
+
+    function difficultyNormal() {
+        if (difficultySelected == 'easy') {
+            gameObjects.mainMenu.difficultyBox1Text.fontWeight = 'normal'
+            gameObjects.mainMenu.difficultyBox1Text.position.x += 2
+            gameObjects.mainMenu.difficultyBox1.fillColor = '#ffffff';
+        }
+        if (difficultySelected == 'hard') {
+            gameObjects.mainMenu.difficultyBox3Text.fontWeight = 'normal'
+            gameObjects.mainMenu.difficultyBox3Text.position.x += 2
+            gameObjects.mainMenu.difficultyBox3.fillColor = '#ffffff';
+        }
+
+        if (difficultySelected != 'normal') {
+            gameObjects.mainMenu.difficultyBox2Text.fontWeight = 'bold'
+            gameObjects.mainMenu.difficultyBox2Text.position.x -= 2
+            gameObjects.mainMenu.difficultyBox2.fillColor = '#cccccc'
+            difficultySelected = 'normal'
+        }
+    }
+
+    function difficultyHard() {
+        if (difficultySelected == 'easy') {
+            gameObjects.mainMenu.difficultyBox1Text.fontWeight = 'normal'
+            gameObjects.mainMenu.difficultyBox1Text.position.x += 2
+            gameObjects.mainMenu.difficultyBox1.fillColor = '#ffffff';
+        }
+        if (difficultySelected == 'normal') {
+            gameObjects.mainMenu.difficultyBox2Text.fontWeight = 'normal'
+            gameObjects.mainMenu.difficultyBox2Text.position.x += 2
+            gameObjects.mainMenu.difficultyBox2.fillColor = '#ffffff';
+        }
+
+        if (difficultySelected != 'hard') {
+            gameObjects.mainMenu.difficultyBox3Text.fontWeight = 'bold'
+            gameObjects.mainMenu.difficultyBox3Text.position.x -= 2
+            gameObjects.mainMenu.difficultyBox3.fillColor = '#cccccc'
+            difficultySelected = 'hard'
+        }
+    }
+
+    //Changes the controls of each player
+    function changePlayer1Up() {
+        gameObjects.mainMenu.player1Up.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer1Up, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Down.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player1Up.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player1Up.key = keyPressed
+            gameObjects.mainMenu.player1Up.text.content = gameObjects.mainMenu.player1Up.key.toUpperCase()
+            gameObjects.mainMenu.player1Up.text.position = gameObjects.mainMenu.player1Up.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player1Up.square.fillColor = 'red'
+            setTimeout(changePlayer1Up, 100)
+        }
+
+    }
+
+    function changePlayer1Left() {
+        gameObjects.mainMenu.player1Left.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer1Left, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Down.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player1Left.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player1Left.key = keyPressed
+            gameObjects.mainMenu.player1Left.text.content = gameObjects.mainMenu.player1Left.key.toUpperCase()
+            gameObjects.mainMenu.player1Left.text.position = gameObjects.mainMenu.player1Left.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player1Left.square.fillColor = 'red'
+            setTimeout(changePlayer1Left, 100)
+        }
+
+    }
+
+    function changePlayer1Down() {
+        gameObjects.mainMenu.player1Down.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer1Down, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Down.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player1Down.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player1Down.key = keyPressed
+            gameObjects.mainMenu.player1Down.text.content = gameObjects.mainMenu.player1Down.key.toUpperCase()
+            gameObjects.mainMenu.player1Down.text.position = gameObjects.mainMenu.player1Down.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player1Down.square.fillColor = 'red'
+            setTimeout(changePlayer1Down, 100)
+        }
+
+    }
+
+    function changePlayer1Right() {
+        gameObjects.mainMenu.player1Right.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer1Right, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Down.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player1Right.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player1Right.key = keyPressed
+            gameObjects.mainMenu.player1Right.text.content = gameObjects.mainMenu.player1Right.key.toUpperCase()
+            gameObjects.mainMenu.player1Right.text.position = gameObjects.mainMenu.player1Right.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player1Right.square.fillColor = 'red'
+            setTimeout(changePlayer1Right, 100)
+        }
+
+    }
+
+    function changePlayer2Up() {
+        gameObjects.mainMenu.player2Up.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer2Up, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Down.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player2Up.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player2Up.key = keyPressed
+            gameObjects.mainMenu.player2Up.text.content = gameObjects.mainMenu.player2Up.key.toUpperCase()
+            gameObjects.mainMenu.player2Up.text.position = gameObjects.mainMenu.player2Up.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player2Up.square.fillColor = 'red'
+            setTimeout(changePlayer2Up, 100)
+        }
+
+    }
+
+    function changePlayer2Left() {
+        gameObjects.mainMenu.player2Left.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer2Left, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != keyPressed != gameObjects.mainMenu.player2Down.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player2Left.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player2Left.key = keyPressed
+            gameObjects.mainMenu.player2Left.text.content = gameObjects.mainMenu.player2Left.key.toUpperCase()
+            gameObjects.mainMenu.player2Left.text.position = gameObjects.mainMenu.player2Left.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player2Left.square.fillColor = 'red'
+            setTimeout(changePlayer2Left, 100)
+        }
+
+    }
+
+    function changePlayer2Down() {
+        gameObjects.mainMenu.player2Down.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer2Down, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Right.key) {
+
+            gameObjects.mainMenu.player2Down.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player2Down.key = keyPressed
+            gameObjects.mainMenu.player2Down.text.content = gameObjects.mainMenu.player2Down.key.toUpperCase()
+            gameObjects.mainMenu.player2Down.text.position = gameObjects.mainMenu.player2Down.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player2Down.square.fillColor = 'red'
+            setTimeout(changePlayer2Down, 100)
+        }
+
+    }
+
+    function changePlayer2Right() {
+        gameObjects.mainMenu.player2Right.square.fillColor = '#cccccc'
+        waitingForInput = true
+
+        fakeLayer.fillColor = '#ffffff'
+
+        if (keyPressed == false) {
+            setTimeout(changePlayer2Right, 100);
+        } else if (keyPressed != gameObjects.mainMenu.player1Up.key && keyPressed != gameObjects.mainMenu.player1Left.key && keyPressed != gameObjects.mainMenu.player1Down.key && keyPressed != gameObjects.mainMenu.player1Right.key && keyPressed != gameObjects.mainMenu.player2Up.key && keyPressed != gameObjects.mainMenu.player2Left.key && keyPressed != gameObjects.mainMenu.player2Down.key) {
+
+            gameObjects.mainMenu.player2Right.square.fillColor = '#ffffff'
+            gameObjects.mainMenu.player2Right.key = keyPressed
+            gameObjects.mainMenu.player2Right.text.content = gameObjects.mainMenu.player2Right.key.toUpperCase()
+            gameObjects.mainMenu.player2Right.text.position = gameObjects.mainMenu.player2Right.square.position
+            waitingForInput = false
+            keyPressed = false
+            fakeLayer.remove()
+            fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+            fakeLayer.opacity = 0
+        } else {
+            keyPressed = false
+            gameObjects.mainMenu.player2Right.square.fillColor = 'red'
+            setTimeout(changePlayer2Right, 100)
+        }
+
+    }
+
+    function onKeyDown(event) {
+        if (waitingForInput) {
+            keyPressed = event.key
+
+        }
+    }
+
+    function onMouseMove(event) {
+        if (atMainMenu == true) {
+            if (!waitingForInput) {
+
+                if (gameObjects.mainMenu.difficultyBox1.hitTest(event.point) && difficultySelected != 'easy') {
+                    gameObjects.mainMenu.difficultyBox1.fillColor = '#f3f6ff'
+                } else if (difficultySelected != 'easy') {
+                    gameObjects.mainMenu.difficultyBox1.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.difficultyBox2.hitTest(event.point) && difficultySelected != 'normal') {
+                    gameObjects.mainMenu.difficultyBox2.fillColor = '#f3f6ff'
+                } else if (difficultySelected != 'normal') {
+                    gameObjects.mainMenu.difficultyBox2.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.difficultyBox3.hitTest(event.point) && difficultySelected != 'hard') {
+                    gameObjects.mainMenu.difficultyBox3.fillColor = '#f3f6ff'
+                } else if (difficultySelected != 'hard') {
+                    gameObjects.mainMenu.difficultyBox3.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player1Up.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player1Up.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player1Up.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player1Left.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player1Left.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player1Left.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player1Down.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player1Down.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player1Down.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player1Right.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player1Right.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player1Right.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player2Up.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player2Up.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player2Up.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player2Left.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player2Left.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player2Left.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player2Down.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player2Down.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player2Down.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.player2Right.square.hitTest(event.point)) {
+                    gameObjects.mainMenu.player2Right.square.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.player2Right.square.fillColor = '#ffffff'
+                }
+
+                if (gameObjects.mainMenu.playButton.hitTest(event.point)) {
+                    gameObjects.mainMenu.playButton.fillColor = '#f3f6ff'
+                } else {
+                    gameObjects.mainMenu.playButton.fillColor = '#ffffff'
+                }
+
+            }
+        }
+
+        if (atScoreScreen == true) {
+
+            if (gameObjects.scoreScreen.returnToMainMenuBox.hitTest(event.point)) {
+                gameObjects.scoreScreen.returnToMainMenuBox.fillColor = '#f3f6ff'
+            } else {
+                gameObjects.scoreScreen.returnToMainMenuBox.fillColor = '#ffffff'
+            }
+
+        }
+
+    }
+
+    function playGame() {
+        atMainMenu = false;
+
+        for (i in gameObjects.mainMenu) {
+            gameObjects.mainMenu[i].visible = false
+        }
+
+        for (i in gameObjects.mainMenu.player1Up) {
+            gameObjects.mainMenu.player1Up[i].visible = false
+            gameObjects.mainMenu.player1Left[i].visible = false
+            gameObjects.mainMenu.player1Down[i].visible = false
+            gameObjects.mainMenu.player1Right[i].visible = false
+
+            gameObjects.mainMenu.player2Up[i].visible = false
+            gameObjects.mainMenu.player2Left[i].visible = false
+            gameObjects.mainMenu.player2Down[i].visible = false
+            gameObjects.mainMenu.player2Right[i].visible = false
+        }
+
+        gameTime = 60
+        startTime = 4
+
+        startTimeTimer = setInterval(showStartTime, 1000)
+        window.startTimeTimer
+    }
+
+    function backgroundClicked() {
+        if (gameRunning == true) {
+            clearGame()
+        }
+    }
+
+    function launchMainMenu() {
+
+        for (i in gameObjects.mainMenu) {
+            gameObjects.mainMenu[i].visible = true
+        }
+
+        for (i in gameObjects.mainMenu.player1Up) {
+            gameObjects.mainMenu.player1Up[i].visible = true
+            gameObjects.mainMenu.player1Left[i].visible = true
+            gameObjects.mainMenu.player1Down[i].visible = true
+            gameObjects.mainMenu.player1Right[i].visible = true
+
+            gameObjects.mainMenu.player2Up[i].visible = true
+            gameObjects.mainMenu.player2Left[i].visible = true
+            gameObjects.mainMenu.player2Down[i].visible = true
+            gameObjects.mainMenu.player2Right[i].visible = true
+        }
+
+        atMainMenu = true
+
+        fakeLayer = new Path.Rectangle(new Point(0, 0), new Point(CANVAS_WIDTH, CANVAS_HEIGHT))
+        fakeLayer.opacity = 0
+    }
+
+    /*
+    *******************
+    Run Game:
+    *******************
+    */
+
+    launchMainMenu()
+    difficultyNormal()
+
+    for (i in gameObjects.scoreScreen) {
+        gameObjects.scoreScreen[i].visible = false
+    }
+
+
+  </script>
+
+</head>
+    
+    
+<body>
+  <div id="canvas-container">
+    <canvas id="paperscriptCanvas"></canvas>
+    "Note: resizing the windows will cause it to refresh."
+  </div>  
+</body>
+
+
+
+</html>
