@@ -8,3 +8,5 @@ Asteroids Point Control was developed in 2015 during an introductory Computer Sc
 * A Game over message
 * Click to restart the game
 * Randomise the position of items
+
+To play the game, just place index.html and paper-full.js in the same folder and run index.html in your browser of choice
