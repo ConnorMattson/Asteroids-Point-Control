@@ -1,5 +1,6 @@
 # Asteroids-Point-Control
 https://connormattson.github.io/Asteroids-Point-Control/index.html
+
 Avoid asteroids and gain control of the most points in order to win
 
 Asteroids Point Control was developed in 2015 during an introductory Computer Science course. The brief required the game to be written in JavaScript embedded in an HTML file and have:
